@@ -1,3 +1,7 @@
+This query identifies user sign-ins leveraging legacy authentication protocols in Azure Active Directory (AAD). Legacy authentication methods, such as IMAP, POP3, Exchange ActiveSync, SMTP, and older Outlook protocols, do not support modern security features like multi-factor authentication (MFA). Their use increases the risk of account compromise, brute force attacks, and credential theft.
+Monitoring for legacy authentication activity is a critical security control to detect potential unauthorized access or accounts bypassing modern security protections.
+Configure you conditional access policies to block legacy authentications. 
+
 // ----------------------------------------------------------
 // MS Defender HUNT: Legacy Authentication Protocols
 // ----------------------------------------------------------
