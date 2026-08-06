@@ -1,6 +1,61 @@
+# MS Sentinel Hunt — Telemetry Validation: Microsoft Defender Stack
+
+| | |
+|---|---|
+| **Category** | Hunting Query — Telemetry Health / Coverage Validation |
+| **Platform** | Microsoft Sentinel (Log Analytics) |
+| **Products covered** | Defender for Endpoint · Defender for Identity · Defender for Office 365 · Defender for Cloud Apps · Defender for Cloud |
+| **Lookback window** | 7 days (configurable) |
+
+## Purpose
+
+This isn't a threat detection — it's a coverage check. It validates that Microsoft Defender telemetry is actually flowing into the Sentinel workspace by enumerating the core log tables behind each Defender product and classifying each one:
+
+| Status | Meaning |
+|---|---|
+| ✅ **Active and Ingesting** | Data seen within the last 7 days |
+| ⚠️ **Stale Data** | Table exists but nothing new in 7+ days |
+| ❌ **No Data Found** | No rows at all — connector likely disabled or misconfigured |
+
+A silent connector failure is a blind spot that won't show up in incident volume until something is missed. Running this on a schedule (weekly is reasonable) catches that drift before it matters.
+
+## Data sources checked
+
+| Source | Table |
+|---|---|
+| Defender for Endpoint — Device Events | `DeviceEvents` |
+| Defender for Endpoint — Process Events | `DeviceProcessEvents` |
+| Defender for Endpoint — File Events | `DeviceFileEvents` |
+| Defender for Endpoint — Network Events | `DeviceNetworkEvents` |
+| Defender for Identity — Logon Events | `IdentityLogonEvents` |
+| Defender for Identity — Security Events | `IdentitySecurityEvents` |
+| Defender for Office 365 — Email Events | `EmailEvents` |
+| Defender for Office 365 — Threat Intelligence | `ThreatIntelligenceIndicator` |
+| Defender for Cloud Apps — CASB Events | `CloudAppEvents` |
+| Defender for Cloud — Azure Security Alerts | `SecurityAlert` |
+| Defender for Cloud — Azure Activity Logs | `AzureActivity` |
+
+## Query
+
+```kusto
 // ----------------------------------------------------------
 // MS Sentinel HUNT: Telemetry Validation: Microsoft Defender Stack
 // ----------------------------------------------------------
+// This hunting query validates the health and availability of Microsoft Defender
+// telemetry sources across environments based on their respective common data tables.
+// This includes the different Defender solutions: Defender for Endpoint, Defender for
+// Identity, Defender for Office 365, Defender for Cloud Apps, Defender for Cloud.
+//
+// The query enumerates all key log tables within the Log Analytics workspace and
+// checks whether they:
+//   - Are present and actively ingesting data (logs seen within the last 7 days)
+//   - Are stale (no new events within the last 7 days)
+//   - Are missing entirely, indicating the data connector is disabled or misconfigured
+//
+// The output provides a quick health status (✅ Active, ⚠️ Stale, or ❌ Missing) for
+// each core log source. Monitoring these sources ensures that critical endpoint,
+// identity, email, and cloud security telemetry is being ingested into Microsoft
+// Sentinel as a singular method.
 
 let lookback = 7d;
 let now = now();
@@ -43,3 +98,9 @@ defenderSources
     )
 | project SourceName, TableName, DataStatus, LastLogTime, EventCount=Count
 | order by DataStatus, SourceName desc
+```
+
+## Notes
+
+- `lookback` is set to `7d` — tighten it for faster drift detection on high-volume tenants, or loosen it for low-volume/lab environments where 7 days of silence isn't necessarily abnormal.
+- `AzureActivity` isn't Defender-specific but is included as a general Azure control-plane health signal alongside the Defender tables.
