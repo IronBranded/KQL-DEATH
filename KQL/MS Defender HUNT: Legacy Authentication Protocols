@@ -1,0 +1,60 @@
+// ----------------------------------------------------------
+// MS Defender HUNT: Legacy Authentication Protocols
+// ----------------------------------------------------------
+let legacy_auth_protocols = dynamic([
+    "Authenticated SMTP", "AutoDiscover", "Exchange ActiveSync", "Exchange Online PowerShell",
+    "Exchange Web Services", "IMAP4", "MAPI Over HTTP", "Outlook Anywhere (RPC over HTTP)",
+    "Outlook Service", "POP3", "Reporting Web Services", "Other clients"
+]);
+let legacy_user_agents = dynamic(["BAV2ROPC", "CBAinPROD", "CBAinTAR", "MSRPC"]);
+// "none" is Entra's default value for RiskLevelDuringSignIn when there's no risk — only these three count as elevated
+let elevated_risk_levels = dynamic(["low", "medium", "high"]);
+AADSignInEventsBeta
+| where Timestamp > ago(2d)
+| where ClientAppUsed in~ (legacy_auth_protocols) or UserAgent has_any (legacy_user_agents)
+// 50125 (password-reset interrupt), 50076 (MFA required — Conditional Access correctly blocking
+// the legacy attempt), and 50140 (KMSI interrupt) are administrative/benign. 50126 (bad password)
+// and 50053 (lockout) stay in — they're the actual brute-force/spray signal this hunt is for.
+| where tostring(ErrorCode) !in ("50125", "50076", "50140")
+| where IPAddress != "::1" and isnotempty(IPAddress) // Exclude localhost and empty IP addresses
+| extend LocationInfo = strcat(Country, " - ", City)
+| summarize
+    Attempts = count(),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp),
+    AppUsed = make_set(ClientAppUsed, 1024),
+    Agents = make_set(UserAgent, 1024),
+    AuthenticationDetails = make_set(AuthenticationProcessingDetails, 1024), // Renamed for clarity
+    Locations = make_set(LocationInfo, 1024),
+    IPs = make_set(IPAddress, 1024),
+    Devices = make_set(DeviceName, 1024),
+    RiskStates = make_set(RiskState, 1024),
+    RiskLevels = make_set(RiskLevelDuringSignIn, 1024),
+    RiskTypes = make_set(RiskEventTypes, 1024),
+    CorrelationIds = make_set(CorrelationId, 1024)
+    by AccountDisplayName, AccountUpn
+| extend AlertSeverity = case(
+    array_length(IPs) > 1 and array_length(Locations) > 1, "High",
+    array_length(set_intersect(RiskLevels, elevated_risk_levels)) > 0, "High",
+    set_has_element(RiskStates, "atRisk"), "Medium",
+    "Low"
+)
+| extend SeverityRank = case(AlertSeverity == "High", 1, AlertSeverity == "Medium", 2, 3)
+| sort by SeverityRank asc, Attempts desc
+| project
+    FirstSeen,
+    LastSeen,
+    Attempts,
+    AccountDisplayName,
+    AccountUpn,
+    AppUsed,
+    Agents,
+    IPs,
+    Locations,
+    Devices,
+    AuthenticationDetails,
+    RiskStates,
+    RiskLevels,
+    RiskTypes,
+    CorrelationIds,
+    AlertSeverity
